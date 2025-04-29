@@ -55,6 +55,8 @@ class AuthController extends Controller
             'password' => Hash::make($request->password),
         ]);
 
+        $user->sendEmailVerificationNotification();
+
         $token = $user->createToken('api-token')->plainTextToken;
 
         return response()->json([
@@ -70,6 +72,19 @@ class AuthController extends Controller
     public function updateUser(Request $request)
     {
         $user = $request->user();
+
+         $request->validate([
+        'name' => 'required|string',
+        'email' => 'required|email|unique:users,email,' . $user->id,
+         ]);
+
+        // If the email is being changed, reset verification
+        if ($user->email !== $request->email) {
+        $user->email = $request->email;
+        $user->email_verified_at = null;
+        $user->save();
+        $user->sendEmailVerificationNotification();
+        }
 
         $user->update($request->only('name', 'email'));
 
