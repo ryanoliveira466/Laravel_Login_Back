@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Mail;
 
 /*
 |--------------------------------------------------------------------------
@@ -15,4 +16,21 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
     return view('welcome');
+});
+
+
+
+
+Route::get('/test-email', function () {
+    $details = [
+        'title' => 'Test Email from Laravel',
+        'body' => 'This is a test email sent via Mailtrap in Laravel 10.'
+    ];
+
+    Mail::raw($details['body'], function ($message) {
+        $message->to('test@example.com')
+                ->subject('Test Mail from Laravel');
+    });
+
+    return 'Test email sent (check your Mailtrap inbox)';
 });

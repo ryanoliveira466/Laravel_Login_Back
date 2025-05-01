@@ -2,8 +2,14 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\UserController;
-use Illuminate\Http\Request;
+use App\Models\User;
+use Illuminate\Auth\Events\Verified;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Password;
+use Illuminate\Auth\Events\PasswordReset;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 
 /*
 |--------------------------------------------------------------------------
@@ -32,9 +38,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user/my', [UserController::class, 'my']);
     Route::post('/user/update', [AuthController::class, 'updateUser']);
     Route::post('/user/change-password', [AuthController::class, 'changePassword']);
-
-    
-    
 });
 
 // PUBLIC routes
@@ -51,3 +54,147 @@ Route::resource('/user', UserController::class);
 
 
 
+
+
+
+
+// EMAIL
+Route::get('/email/verify/{id}/{hash}', function ($id, $hash) {
+    $user = User::findOrFail($id);
+
+    if (! hash_equals((string) $hash, sha1($user->getEmailForVerification()))) {
+        abort(403, 'Invalid verification link.');
+    }
+
+    if (! $user->hasVerifiedEmail()) {
+        $user->markEmailAsVerified();
+        event(new Verified($user));
+        return redirect('http://127.0.0.1:5501/email-verified-success.html'); // Redirect to your frontend
+    }
+
+})->middleware('signed')->name('verification.verify');
+
+
+
+
+
+
+
+
+
+
+
+
+// Request password reset link
+Route::post('/forgot-password', function (Request $request) {
+
+    $email = (string) $request->input('email');
+    $email = preg_replace('/\s+/', '', trim($email));
+    if ($request->email !== $email) {
+        return response()->json([
+            'message' => 'Email must not contain spaces',
+        ], 400);
+    }
+
+    try {
+        $request->validate(
+            [
+                'email' => 'required|email'
+            ],
+            [
+                'email.required' => 'The email field is required',
+                'email.email' => 'The email must be a valid email address',
+            ]
+        );
+
+        $status = Password::sendResetLink(
+            $request->only('email')
+        );
+
+        return $status === Password::RESET_LINK_SENT
+            ? response()->json([
+                'success' => true,
+                'message' => __($status)
+            ])
+            : response()->json([
+                'success' => false,
+                'message' => __($status),
+                'error' => __($status),
+            ], 400);
+    } catch (\Exception $error) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Error while sending email',
+            'error' => $error->getMessage(),
+        ], 500);
+    }
+});
+
+// Reset password using token
+Route::post('/reset-password', function (Request $request) {
+
+    //Trim is auto for email and name
+
+    $email = (string) $request->input('email');
+    $email = preg_replace('/\s+/', '', trim($email));
+    if ($request->email !== $email) {
+        return response()->json([
+            'message' => 'Email must not contain spaces',
+        ], 400);
+    }
+
+    $password = (string) $request->input('password');
+    $password = preg_replace('/\s+/', '', trim($password));
+    if ((string) $request->input('password') !== $password) {
+        return response()->json([
+            'message' => 'Password must not contain spaces',
+        ], 400);
+    }
+
+    try {
+        $request->validate(
+            [
+                'token' => 'required',
+                'email' => 'required|email',
+                'password' => 'required|confirmed',
+            ],
+            [
+                'token.required' => 'The token field is required',
+                'email.required' => 'The email field is required',
+                'email.email' => 'The email must be a valid email address',
+                'password.required' => 'The password field is required',
+                'password.confirmed' => 'Passwords must match'
+
+            ]
+        );
+
+        $status = Password::reset(
+            $request->only('email', 'password', 'password_confirmation', 'token'),
+            function ($user, $password) {
+                $user->forceFill([
+                    'password' => Hash::make($password),
+                    'remember_token' => Str::random(60),
+                ])->save();
+
+                event(new PasswordReset($user));
+            }
+        );
+
+        return $status === Password::PASSWORD_RESET
+            ? response()->json([
+                'success' => true,
+                'message' => __($status)
+            ])
+            : response()->json([
+                'success' => false,
+                'message' => __($status),
+                'error' => __($status),
+            ], 400);
+    } catch (\Exception $error) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Error while resetting password',
+            'error' => $error->getMessage(),
+        ], 500);
+    }
+});
